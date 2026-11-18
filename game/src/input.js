@@ -1,53 +1,53 @@
-// Keyboard and pointer input. Held keys give a steering direction; one-shot presses (start or
-// restart, pause) are queued as bit flags and taken once by the loop, so a press between two
-// frames is never lost and never counted twice.
-
+// Keyboard + mouse input. Held keys are read every frame; one-shot presses
+// (confirm, pause, enter-car, weapon keys, mission) are queued as flags.
 export const ACTION_CONFIRM = 1;
 export const ACTION_PAUSE = 2;
+export const ACTION_ENTER = 4;
+export const ACTION_WEAPON1 = 8;
+export const ACTION_WEAPON2 = 16;
+export const ACTION_WEAPON3 = 32;
+export const ACTION_MISSION = 64;
 
-const LEFT = new Set(['ArrowLeft', 'KeyA']);
-const RIGHT = new Set(['ArrowRight', 'KeyD']);
-const CONFIRM = new Set(['Space', 'Enter']);
-const PAUSE = new Set(['KeyP', 'Escape']);
-
-export function createInput(target) {
-  let left = false;
-  let right = false;
+export function createInput(canvas) {
+  const keys = new Set();
   let actions = 0;
-
-  window.addEventListener('keydown', (event) => {
-    if (LEFT.has(event.code)) left = true;
-    else if (RIGHT.has(event.code)) right = true;
-    else if (CONFIRM.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_CONFIRM;
-    } else if (PAUSE.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_PAUSE;
-    } else return;
-    event.preventDefault();
+  let mouseX = 640, mouseY = 360, firing = false;
+  window.addEventListener('keydown', (e) => {
+    if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault();
+    if (e.repeat) { keys.add(e.code); return; }
+    keys.add(e.code);
+    if (e.code === 'Space' || e.code === 'Enter') actions |= ACTION_CONFIRM;
+    else if (e.code === 'KeyP' || e.code === 'Escape') actions |= ACTION_PAUSE;
+    else if (e.code === 'KeyE') actions |= ACTION_ENTER;
+    else if (e.code === 'Digit1') actions |= ACTION_WEAPON1;
+    else if (e.code === 'Digit2') actions |= ACTION_WEAPON2;
+    else if (e.code === 'Digit3') actions |= ACTION_WEAPON3;
+    else if (e.code === 'KeyM') actions |= ACTION_MISSION;
   });
-  window.addEventListener('keyup', (event) => {
-    if (LEFT.has(event.code)) left = false;
-    else if (RIGHT.has(event.code)) right = false;
+  window.addEventListener('keyup', (e) => keys.delete(e.code));
+  window.addEventListener('blur', () => { keys.clear(); firing = false; });
+  canvas.addEventListener('mousemove', (e) => {
+    const r = canvas.getBoundingClientRect();
+    mouseX = (e.clientX - r.left) * (canvas.width / r.width);
+    mouseY = (e.clientY - r.top) * (canvas.height / r.height);
   });
-  // A key released while the tab is hidden never sends keyup: let go of everything on blur.
-  window.addEventListener('blur', () => {
-    left = false;
-    right = false;
-  });
-  target.addEventListener('pointerdown', () => {
-    actions |= ACTION_CONFIRM;
-  });
-
+  canvas.addEventListener('mousedown', (e) => { if (e.button === 0) firing = true; });
+  window.addEventListener('mouseup', () => { firing = false; });
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   return {
-    /** -1 for left, 1 for right, 0 for neither or both. */
-    direction() {
-      return (right ? 1 : 0) - (left ? 1 : 0);
-    },
-    /** The one-shot presses since the last call, as ACTION_* flags. */
-    takeActions() {
-      const taken = actions;
-      actions = 0;
-      return taken;
-    },
+    moveX() { return (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0); },
+    moveY() { return (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0) - (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0); },
+    run() { return keys.has('ShiftLeft') || keys.has('ShiftRight'); },
+    get firing() { return firing; },
+    get mouseX() { return mouseX; },
+    get mouseY() { return mouseY; },
+    takeActions() { const t = actions; actions = 0; return t; },
+    // Put bits back for the world to consume (the loop only owns confirm/pause).
+    requeue(bits) { actions |= bits; },
+    // Test / autopilot hooks: pretend keys are held.
+    press(code) { keys.add(code); },
+    release(code) { keys.delete(code); },
+    setMouse(x, y) { mouseX = x; mouseY = y; },
+    setFiring(v) { firing = v; },
   };
 }
